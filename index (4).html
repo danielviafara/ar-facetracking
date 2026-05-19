@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>AR Face - Daniel Viafara</title>
+  <!-- face-api.js: detección facial ligera, funciona en iOS Safari -->
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html, body { width:100vw; height:100vh; overflow:hidden; background:#000; font-family:'Segoe UI',sans-serif; }
+
+    #container {
+      position:relative; width:100vw; height:100vh;
+    }
+
+    video {
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
+      object-fit:cover;
+      transform: scaleX(-1); /* espejo como selfie */
+    }
+
+    canvas#overlay {
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
+      pointer-events:none;
+    }
+
+    /* SPLASH */
+    #splash {
+      position:fixed; inset:0; z-index:999;
+      background:#0a0a0a;
+      display:flex; flex-direction:column;
+      align-items:center; justify-content:center; gap:20px;
+    }
+    #splash .icon { font-size:72px; }
+    #splash h1 { font-size:26px; font-weight:900; color:#00D4FF; letter-spacing:4px; }
+    #splash p { font-size:13px; color:rgba(255,255,255,0.5); text-align:center; padding:0 40px; line-height:1.7; }
+    #start-btn {
+      padding:18px 52px; background:#00D4FF;
+      border:none; border-radius:40px;
+      font-size:17px; font-weight:800; color:#000; cursor:pointer;
+      box-shadow:0 0 40px rgba(0,212,255,0.5);
+    }
+    #loading-msg { font-size:13px; color:#00D4FF; display:none; }
+
+    /* UI */
+    #ui {
+      position:fixed; z-index:100; width:100%; height:100%;
+      pointer-events:none;
+      display:flex; flex-direction:column; justify-content:space-between;
+    }
+    #topbar {
+      pointer-events:all;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:16px 20px;
+      background:linear-gradient(to bottom,rgba(0,0,0,0.7),transparent);
+    }
+    #topbar h1 { font-size:15px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#00D4FF; }
+    #topbar span { font-size:11px; color:rgba(255,255,255,0.5); }
+
+    #bottom {
+      pointer-events:all;
+      padding:12px 16px 36px;
+      background:linear-gradient(to top,rgba(0,0,0,0.85),transparent);
+    }
+    #effects-label { font-size:11px; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,0.4); margin-bottom:8px; text-align:center; }
+    #effects-grid { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-bottom:14px; }
+    .effect-btn {
+      background:rgba(255,255,255,0.08); border:1.5px solid rgba(255,255,255,0.15);
+      border-radius:12px; padding:8px 12px; color:#fff; cursor:pointer; transition:all 0.2s;
+      display:flex; flex-direction:column; align-items:center; gap:3px; min-width:64px;
+    }
+    .effect-btn .icon { font-size:20px; }
+    .effect-btn .lbl { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:rgba(255,255,255,0.6); }
+    .effect-btn.active { background:rgba(0,212,255,0.2); border-color:#00D4FF; transform:translateY(-2px); }
+    .effect-btn.active .lbl { color:#00D4FF; }
+
+    #capture-row { display:flex; justify-content:center; align-items:center; gap:20px; }
+    #capture-btn {
+      width:64px; height:64px; border-radius:50%;
+      background:#fff; border:4px solid rgba(255,255,255,0.3);
+      cursor:pointer; font-size:26px;
+      display:flex; align-items:center; justify-content:center;
+      box-shadow:0 0 24px rgba(255,255,255,0.2);
+    }
+    #capture-btn:active { transform:scale(0.9); background:#00D4FF; }
+    .side-btn {
+      width:46px; height:46px; border-radius:50%;
+      background:rgba(255,255,255,0.1); border:1.5px solid rgba(255,255,255,0.2);
+      cursor:pointer; font-size:18px;
+      display:flex; align-items:center; justify-content:center;
+    }
+
+    #flash { position:fixed; inset:0; background:white; z-index:200; opacity:0; pointer-events:none; transition:opacity 0.08s; }
+    #flash.active { opacity:1; }
+
+    #toast {
+      position:fixed; top:80px; left:50%; transform:translateX(-50%) translateY(-20px);
+      background:rgba(0,212,255,0.92); color:#000;
+      padding:10px 20px; border-radius:20px; font-size:13px; font-weight:600;
+      z-index:300; opacity:0; transition:all 0.3s; pointer-events:none; white-space:nowrap;
+    }
+    #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+    #preview-modal {
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92);
+      z-index:400; align-items:center; justify-content:center; flex-direction:column; gap:20px;
+    }
+    #preview-modal.show { display:flex; }
+    #preview-img { max-width:90vw; max-height:65vh; border-radius:12px; border:2px solid #00D4FF; }
+    #preview-actions { display:flex; gap:12px; }
+    .modal-btn { padding:12px 22px; border-radius:24px; border:none; font-size:14px; font-weight:600; cursor:pointer; }
+    .modal-btn.primary { background:#00D4FF; color:#000; }
+    .modal-btn.secondary { background:rgba(255,255,255,0.1); color:#fff; border:1px solid rgba(255,255,255,0.2); }
+  </style>
+</head>
+<body>
+
+<div id="splash">
+  <div class="icon">⚡</div>
+  <h1>AR FACE</h1>
+  <p>Filtros de realidad aumentada con detección facial en tiempo real</p>
+  <button id="start-btn" onclick="startAR()">Iniciar AR 🚀</button>
+  <div id="loading-msg">⏳ Cargando modelo facial...</div>
+</div>
+
+<div id="flash"></div>
+<div id="toast"></div>
+
+<div id="preview-modal">
+  <img id="preview-img" src="" alt="Captura"/>
+  <div id="preview-actions">
+    <button class="modal-btn primary" onclick="downloadPhoto()">⬇️ Guardar</button>
+    <button class="modal-btn secondary" onclick="sharePhoto()">🔗 Compartir</button>
+    <button class="modal-btn secondary" onclick="closePreview()">✕ Cerrar</button>
+  </div>
+</div>
+
+<div id="container">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="overlay"></canvas>
+</div>
+
+<div id="ui">
+  <div id="topbar">
+    <h1>⚡ AR Face</h1>
+    <span>danielviafara.github.io</span>
+  </div>
+  <div id="bottom">
+    <div id="effects-label">Selecciona un efecto</div>
+    <div id="effects-grid">
+      <button class="effect-btn active" onclick="setEffect('glasses')" id="btn-glasses"><span class="icon">🕶️</span><span class="lbl">Gafas</span></button>
+      <button class="effect-btn" onclick="setEffect('crown')" id="btn-crown"><span class="icon">👑</span><span class="lbl">Corona</span></button>
+      <button class="effect-btn" onclick="setEffect('dog')" id="btn-dog"><span class="icon">🐶</span><span class="lbl">Perro</span></button>
+      <button class="effect-btn" onclick="setEffect('cyber')" id="btn-cyber"><span class="icon">🤖</span><span class="lbl">Cyber</span></button>
+      <button class="effect-btn" onclick="setEffect('none')" id="btn-none"><span class="icon">✕</span><span class="lbl">Ninguno</span></button>
+    </div>
+    <div id="capture-row">
+      <button class="side-btn" onclick="openPreview()">🖼️</button>
+      <button id="capture-btn" onclick="capturePhoto()">📸</button>
+      <button class="side-btn" onclick="sharePhoto()">🔗</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('overlay');
+const ctx = canvas.getContext('2d');
+let currentEffect = 'glasses';
+let lastPhotoDataUrl = null;
+let detecting = false;
+let lastDetections = null;
+let animFrame = 0;
+
+// ── INICIO ──
+async function startAR() {
+  document.getElementById('start-btn').style.display = 'none';
+  document.getElementById('loading-msg').style.display = 'block';
+
+  try {
+    // Cargar modelos de face-api.js desde CDN
+    const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
+    ]);
+
+    // Activar cámara frontal
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    // Ocultar splash
+    document.getElementById('splash').style.display = 'none';
+
+    // Iniciar detección
+    detecting = true;
+    resizeCanvas();
+    detectLoop();
+    drawLoop();
+
+  } catch(e) {
+    document.getElementById('loading-msg').textContent = '⚠️ Error: ' + e.message;
+  }
+}
+
+function resizeCanvas() {
+  canvas.width = video.videoWidth || window.innerWidth;
+  canvas.height = video.videoHeight || window.innerHeight;
+}
+
+// Detección cada 150ms para no saturar
+async function detectLoop() {
+  if (!detecting) return;
+  try {
+    resizeCanvas();
+    lastDetections = await faceapi
+      .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
+      .withFaceLandmarks();
+  } catch(e) {}
+  setTimeout(detectLoop, 150);
+}
+
+// Dibujado cada frame
+function drawLoop() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  animFrame++;
+
+  if (lastDetections && lastDetections.length > 0) {
+    lastDetections.forEach(det => {
+      const lm = det.landmarks;
+      const pts = lm.positions;
+
+      // Escala para el canvas (el video puede tener diferente res)
+      const scaleX = canvas.width / (video.videoWidth || canvas.width);
+      const scaleY = canvas.height / (video.videoHeight || canvas.height);
+
+      // Como el video está en espejo (scaleX(-1) en CSS), invertimos X
+      const p = (i) => ({
+        x: canvas.width - pts[i].x * scaleX,
+        y: pts[i].y * scaleY
+      });
+
+      if (currentEffect === 'glasses') drawGlasses(p, pts, scaleX, scaleY);
+      if (currentEffect === 'crown')   drawCrown(p, pts, scaleX, scaleY);
+      if (currentEffect === 'dog')     drawDog(p, pts, scaleX, scaleY);
+      if (currentEffect === 'cyber')   drawCyber(p, pts, scaleX, scaleY);
+    });
+  }
+
+  requestAnimationFrame(drawLoop);
+}
+
+// ── EFECTOS ──
+
+function drawGlasses(p, pts, sx, sy) {
+  // Ojo izquierdo (landmarks 36-41) y derecho (42-47)
+  const leftEye  = p(39);  // centro ojo izquierdo
+  const rightEye = p(42);  // centro ojo derecho
+  const eyeW = Math.abs(p(36).x - p(39).x) * 1.6;
+
+  ctx.save();
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 3;
+  ctx.fillStyle = 'rgba(20,20,40,0.55)';
+
+  // Lente izquierdo
+  ctx.beginPath();
+  ctx.ellipse(leftEye.x, leftEye.y, eyeW * 0.6, eyeW * 0.38, 0, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+
+  // Lente derecho
+  ctx.beginPath();
+  ctx.ellipse(rightEye.x, rightEye.y, eyeW * 0.6, eyeW * 0.38, 0, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+
+  // Puente
+  ctx.beginPath();
+  ctx.moveTo(leftEye.x + eyeW * 0.55, leftEye.y);
+  ctx.lineTo(rightEye.x - eyeW * 0.55, rightEye.y);
+  ctx.stroke();
+
+  // Patillas
+  ctx.beginPath();
+  ctx.moveTo(leftEye.x - eyeW * 0.6, leftEye.y);
+  ctx.lineTo(leftEye.x - eyeW * 1.0, leftEye.y - 5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(rightEye.x + eyeW * 0.6, rightEye.y);
+  ctx.lineTo(rightEye.x + eyeW * 1.0, rightEye.y - 5);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawCrown(p, pts, sx, sy) {
+  const top = p(27);   // puente nariz arriba = frente aprox
+  const left = p(0);
+  const right = p(16);
+  const w = Math.abs(right.x - left.x);
+  const cx = (left.x + right.x) / 2;
+  const cy = top.y - w * 0.15;
+  const crownW = w * 0.9;
+  const crownH = w * 0.35;
+
+  ctx.save();
+
+  // Base corona
+  ctx.fillStyle = '#FFD700';
+  ctx.strokeStyle = '#B8860B';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.rect(cx - crownW/2, cy, crownW, crownH * 0.4);
+  ctx.fill(); ctx.stroke();
+
+  // Picos
+  const picos = [
+    [cx - crownW*0.4, cy],
+    [cx, cy - crownH * 0.6],
+    [cx + crownW*0.4, cy]
+  ];
+
+  ctx.beginPath();
+  ctx.moveTo(cx - crownW/2, cy);
+  ctx.lineTo(picos[0][0], picos[0][1]);
+  ctx.lineTo(cx - crownW*0.2, cy);
+  ctx.lineTo(picos[1][0], picos[1][1]);
+  ctx.lineTo(cx + crownW*0.2, cy);
+  ctx.lineTo(picos[2][0], picos[2][1]);
+  ctx.lineTo(cx + crownW/2, cy);
+  ctx.lineTo(cx + crownW/2, cy + crownH*0.4);
+  ctx.lineTo(cx - crownW/2, cy + crownH*0.4);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // Gemas
+  const gems = [
+    { x: picos[0][0], y: picos[0][1] + 8, c: '#FF1744' },
+    { x: picos[1][0], y: picos[1][1] + 10, c: '#00D4FF' },
+    { x: picos[2][0], y: picos[2][1] + 8, c: '#FF1744' },
+  ];
+  gems.forEach(g => {
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, w * 0.025, 0, Math.PI*2);
+    ctx.fillStyle = g.c;
+    ctx.fill();
+  });
+
+  // Partícula animada
+  const t = animFrame * 0.05;
+  ctx.beginPath();
+  ctx.arc(cx - crownW*0.5, cy - crownH*0.3 + Math.sin(t)*8, w*0.015, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(255,215,0,0.8)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + crownW*0.5, cy - crownH*0.3 + Math.sin(t+1)*8, w*0.015, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawDog(p, pts, sx, sy) {
+  const nose = p(30);
+  const left = p(0);
+  const right = p(16);
+  const w = Math.abs(right.x - left.x);
+
+  // Nariz
+  ctx.save();
+  ctx.fillStyle = '#3d2b1f';
+  ctx.beginPath();
+  ctx.ellipse(nose.x, nose.y, w*0.1, w*0.07, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // Fosas
+  ctx.fillStyle = '#1a0f0a';
+  ctx.beginPath();
+  ctx.ellipse(nose.x - w*0.04, nose.y - w*0.015, w*0.025, w*0.018, -0.3, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(nose.x + w*0.04, nose.y - w*0.015, w*0.025, w*0.018, 0.3, 0, Math.PI*2);
+  ctx.fill();
+
+  // Orejas
+  const topHead = p(27);
+  const earY = topHead.y - w * 0.05;
+
+  // Oreja izquierda
+  ctx.fillStyle = '#c8a882';
+  ctx.beginPath();
+  ctx.ellipse(left.x + w*0.05, earY, w*0.18, w*0.28, -0.3, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = '#a0856a';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Oreja derecha
+  ctx.beginPath();
+  ctx.ellipse(right.x - w*0.05, earY, w*0.18, w*0.28, 0.3, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawCyber(p, pts, sx, sy) {
+  const leftEye = p(39);
+  const rightEye = p(42);
+  const eyeW = Math.abs(p(36).x - p(39).x) * 1.8;
+  const eyeH = eyeW * 0.45;
+  const top = p(27);
+  const left = p(0);
+  const right = p(16);
+  const w = Math.abs(right.x - left.x);
+  const cx = (left.x + right.x) / 2;
+
+  ctx.save();
+
+  // Visor ojo izquierdo
+  ctx.fillStyle = 'rgba(0,212,255,0.15)';
+  ctx.strokeStyle = '#00D4FF';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.rect(leftEye.x - eyeW/2, leftEye.y - eyeH/2, eyeW, eyeH);
+  ctx.fill(); ctx.stroke();
+
+  // Scan line ojo izquierdo
+  const scanY1 = leftEye.y - eyeH/2 + (eyeH * ((animFrame % 40) / 40));
+  ctx.fillStyle = 'rgba(0,255,255,0.8)';
+  ctx.fillRect(leftEye.x - eyeW/2, scanY1, eyeW, 2);
+
+  // Wireframe ojo izquierdo
+  ctx.strokeStyle = 'rgba(0,212,255,0.5)';
+  ctx.lineWidth = 0.5;
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(leftEye.x - eyeW/2 + (eyeW/4)*i, leftEye.y - eyeH/2);
+    ctx.lineTo(leftEye.x - eyeW/2 + (eyeW/4)*i, leftEye.y + eyeH/2);
+    ctx.stroke();
+  }
+
+  // Visor ojo derecho
+  ctx.fillStyle = 'rgba(0,212,255,0.15)';
+  ctx.strokeStyle = '#00D4FF';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.rect(rightEye.x - eyeW/2, rightEye.y - eyeH/2, eyeW, eyeH);
+  ctx.fill(); ctx.stroke();
+
+  const scanY2 = rightEye.y - eyeH/2 + (eyeH * ((animFrame % 40) / 40));
+  ctx.fillStyle = 'rgba(0,255,255,0.8)';
+  ctx.fillRect(rightEye.x - eyeW/2, scanY2, eyeW, 2);
+
+  ctx.strokeStyle = 'rgba(0,212,255,0.5)';
+  ctx.lineWidth = 0.5;
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(rightEye.x - eyeW/2 + (eyeW/4)*i, rightEye.y - eyeH/2);
+    ctx.lineTo(rightEye.x - eyeW/2 + (eyeW/4)*i, rightEye.y + eyeH/2);
+    ctx.stroke();
+  }
+
+  // Texto holo frente
+  const alpha = 0.4 + 0.6 * Math.abs(Math.sin(animFrame * 0.05));
+  ctx.fillStyle = `rgba(0,212,255,${alpha})`;
+  ctx.font = `bold ${w * 0.09}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillText('DANIEL VIAFARA', cx, top.y - w * 0.12);
+  ctx.font = `${w * 0.06}px monospace`;
+  ctx.fillStyle = `rgba(0,255,255,${alpha * 0.7})`;
+  ctx.fillText('SOFTWARE ENGINEER', cx, top.y - w * 0.04);
+
+  ctx.restore();
+}
+
+// ── EFECTOS ──
+function setEffect(name) {
+  currentEffect = name;
+  document.querySelectorAll('.effect-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('btn-' + name);
+  if (btn) btn.classList.add('active');
+  showToast('Efecto: ' + name.charAt(0).toUpperCase() + name.slice(1));
+}
+
+// ── CAPTURA ──
+function capturePhoto() {
+  document.getElementById('flash').classList.add('active');
+  setTimeout(() => document.getElementById('flash').classList.remove('active'), 120);
+
+  try {
+    const out = document.createElement('canvas');
+    out.width = canvas.width;
+    out.height = canvas.height;
+    const c = out.getContext('2d');
+
+    // Dibujar video (espejado igual que en pantalla)
+    c.save();
+    c.scale(-1, 1);
+    c.drawImage(video, -out.width, 0, out.width, out.height);
+    c.restore();
+
+    // Dibujar efectos AR encima
+    c.drawImage(canvas, 0, 0);
+
+    lastPhotoDataUrl = out.toDataURL('image/jpeg', 0.92);
+    showToast('📸 Foto capturada!');
+  } catch(e) {
+    showToast('⚠️ Error: ' + e.message);
+  }
+}
+
+function openPreview() {
+  if (!lastPhotoDataUrl) { showToast('Toma una foto primero 📸'); return; }
+  document.getElementById('preview-img').src = lastPhotoDataUrl;
+  document.getElementById('preview-modal').classList.add('show');
+}
+function closePreview() { document.getElementById('preview-modal').classList.remove('show'); }
+function downloadPhoto() {
+  if (!lastPhotoDataUrl) return;
+  const a = document.createElement('a');
+  a.href = lastPhotoDataUrl;
+  a.download = 'ar-face-' + Date.now() + '.jpg';
+  a.click();
+  showToast('⬇️ Guardando...');
+  closePreview();
+}
+async function sharePhoto() {
+  if (!lastPhotoDataUrl) { showToast('Toma una foto primero 📸'); return; }
+  try {
+    const blob = await (await fetch(lastPhotoDataUrl)).blob();
+    const file = new File([blob], 'ar-face.jpg', { type:'image/jpeg' });
+    if (navigator.share && navigator.canShare({ files:[file] })) {
+      await navigator.share({ title:'AR Face - Daniel Viafara', files:[file] });
+    } else { downloadPhoto(); }
+  } catch(e) { downloadPhoto(); }
+}
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+</script>
+</body>
+</html>
